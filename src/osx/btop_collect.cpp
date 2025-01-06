@@ -1136,6 +1136,88 @@ namespace Proc {
 		}
 	}
 
+	void _tree_gen(proc_info& p, const vector<proc_info>& procs, vector<tree_proc>& tree_procs, int depth,
+               bool parent_collapsed, const string& filter, bool filter_match, bool no_update, bool should_filter) {
+		if (parent_collapsed) {
+			// When the parent is collapsed, ensure we don't add the process directly to the tree.
+			return;
+		}
+	
+		auto& tree_entry = tree_procs.emplace_back(tree_proc{p, {}, depth, !filter_match && p.filtered});
+	
+		if (p.collapsed) {
+			// Sum up memory and thread counts for the collapsed process and its children.
+			for (auto& child : rng::equal_range(procs, p.pid, rng::less{}, &proc_info::ppid)) {
+				tree_entry.entry.get().mem += child.mem;
+				tree_entry.entry.get().threads += child.threads;
+			}
+			return;
+		}
+	
+		// Recurse into children processes
+		for (auto& child : rng::equal_range(procs, p.pid, rng::less{}, &proc_info::ppid)) {
+			_tree_gen(child, procs, tree_procs, depth + 1, false, filter, filter_match, no_update, should_filter);
+		}
+	}
+
+	// void _tree_gen(proc_info& p, vector<proc_info>& procs, vector<tree_proc>& tree_procs, 
+ //                   int depth, bool last, const string& filter, bool filtered, bool no_update, bool should_filter) {
+ //        tree_proc current_tree{p};
+ //        p.tree_index = tree_procs.size();
+        
+ //        // Initialize aggregated memory and thread counts
+ //        uint64_t total_mem = p.mem;
+ //        uint32_t total_threads = p.threads;
+        
+ //        // Find and process all children of the current process
+ //        auto child_range = rng::equal_range(procs, p.pid, rng::less{}, &proc_info::ppid);
+ //        if (child_range.begin() != child_range.end()) {
+ //            vector<reference_wrapper<proc_info>> children;
+ //            for (auto& child : child_range) {
+ //                children.push_back(ref(child));
+ //            }
+            
+ //            // Sort children according to current sorting settings
+ //            if (not no_update or should_filter) {
+ //                proc_sorter(children, current_sort, current_rev, false);
+ //            }
+            
+ //            // Process each child
+ //            for (size_t i = 0; i < children.size(); i++) {
+ //                auto& child = children[i].get();
+                
+ //                if (not p.collapsed) {
+ //                    // Only add to tree structure if parent is not collapsed
+ //                    _tree_gen(child, procs, tree_procs, depth + 1, i == children.size() - 1, 
+ //                             filter, filtered or p.filtered, no_update, should_filter);
+ //                }
+                
+ //                // Always aggregate memory and thread counts from children
+ //                total_mem += child.mem;
+ //                total_threads += child.threads;
+ //            }
+ //        }
+        
+        // Update process memory and thread counts with aggregated values only when collapsed
+        if (p.collapsed) {
+            p.mem = total_mem;
+            p.threads = total_threads;
+        }
+        
+        // Add current process to tree structure
+        if (not filtered) {
+            if (not filter.empty()) {
+                if (matches_filter(p, filter)) {
+                    tree_procs.push_back(std::move(current_tree));
+                } else {
+                    filter_found++;
+                }
+            } else {
+                tree_procs.push_back(std::move(current_tree));
+            }
+        }
+    }
+
 	//* Collects and sorts process information from /proc
 	auto collect(bool no_update) -> vector<proc_info> & {
 		const auto &sorting = Config::getS("proc_sorting");
